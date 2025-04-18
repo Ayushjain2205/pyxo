@@ -1,16 +1,26 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import Image from "next/image"
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Card, CardContent } from "@/components/ui/card"
-import { Slider } from "@/components/ui/slider"
-import { Label } from "@/components/ui/label"
-import { Input } from "@/components/ui/input"
-import { Sparkles, Loader2, Share2, Coins } from "lucide-react"
+import { useState } from "react";
+import Image from "next/image";
+import Link from "next/link";
+import { createCoin } from "@zoralabs/coins-sdk";
+import {
+  createPublicClient,
+  createWalletClient,
+  custom,
+  http,
+  Address,
+} from "viem";
+import { base } from "viem/chains";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent } from "@/components/ui/card";
+import { Slider } from "@/components/ui/slider";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Sparkles, Loader2, Share2, Coins } from "lucide-react";
+import { useToast } from "@/components/ui/use-toast";
 import {
   Dialog,
   DialogContent,
@@ -18,16 +28,17 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
+} from "@/components/ui/dialog";
 
 export default function CreatePage() {
-  const [prompt, setPrompt] = useState("")
-  const [isGenerating, setIsGenerating] = useState(false)
-  const [generatedImage, setGeneratedImage] = useState("")
-  const [showCoinDialog, setShowCoinDialog] = useState(false)
-  const [tokenName, setTokenName] = useState("")
-  const [tokenSymbol, setTokenSymbol] = useState("")
-  const [isCoining, setIsCoining] = useState(false)
+  const { toast } = useToast();
+  const [prompt, setPrompt] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generatedImage, setGeneratedImage] = useState("");
+  const [showCoinDialog, setShowCoinDialog] = useState(false);
+  const [tokenName, setTokenName] = useState("");
+  const [tokenSymbol, setTokenSymbol] = useState("");
+  const [isCoining, setIsCoining] = useState(false);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>("");
 
@@ -42,7 +53,7 @@ export default function CreatePage() {
     "3D Render",
     "Neon",
     "Minimalist",
-  ]
+  ];
 
   const handleGenerate = async () => {
     if (!prompt) return;
@@ -52,29 +63,29 @@ export default function CreatePage() {
       let response;
       if (selectedImage && imagePreview) {
         // Send Data URI as image_url for image-to-image
-        response = await fetch('/api/generate', {
-          method: 'POST',
+        response = await fetch("/api/generate", {
+          method: "POST",
           headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
           },
           body: JSON.stringify({
             prompt,
             image_url: imagePreview, // Data URI
             aspect_ratio: "1:1",
-            num_images: 1
+            num_images: 1,
           }),
         });
       } else {
         // Text-to-image as before
-        response = await fetch('/api/generate', {
-          method: 'POST',
+        response = await fetch("/api/generate", {
+          method: "POST",
           headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
           },
           body: JSON.stringify({
             prompt,
             aspect_ratio: "1:1",
-            num_images: 1
+            num_images: 1,
           }),
         });
       }
@@ -83,33 +94,122 @@ export default function CreatePage() {
       if (data.images && Array.isArray(data.images) && data.images[0]?.url) {
         setGeneratedImage(data.images[0].url);
       } else {
-        console.error('No images returned from API:', data);
+        console.error("No images returned from API:", data);
         // Optionally show a toast or error UI here
       }
     } catch (error) {
-      console.error('Error generating image:', error);
+      console.error("Error generating image:", error);
       // You might want to show an error message to the user here
     } finally {
       setIsGenerating(false);
     }
-  }
+  };
 
-  const handleCoinSubmit = () => {
-    if (!tokenName || !tokenSymbol) return
+  const handleCoinSubmit = async () => {
+    if (!tokenName || !tokenSymbol) {
+      console.log("Validation failed: Token name or symbol is missing");
+      return;
+    }
 
-    setIsCoining(true)
+    if (!window.ethereum) {
+      console.log("MetaMask not found: Please install MetaMask");
+      toast({
+        title: "Error",
+        description: "Please install MetaMask!",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    // Simulate coining process
-    setTimeout(() => {
-      setIsCoining(false)
-      setShowCoinDialog(false)
-      // Here you would typically redirect to the artwork page or show a success message
-    }, 2000)
-  }
+    console.log("Starting coin creation process...");
+    console.log("Token Details:", { name: tokenName, symbol: tokenSymbol });
+
+    setIsCoining(true);
+
+    try {
+      console.log("Setting up public client...");
+      const publicClient = createPublicClient({
+        chain: base,
+        transport: http(process.env.NEXT_PUBLIC_RPC_URL),
+      });
+
+      console.log("Requesting wallet connection...");
+      const [address] = await window.ethereum.request({
+        method: "eth_requestAccounts",
+      });
+      console.log("Connected wallet address:", address);
+
+      const coinParams = {
+        name: tokenName,
+        symbol: tokenSymbol,
+        uri: "ipfs://bafybeigoxzqzbnxsn35vq7lls3ljxdcwjafxvbvkivprsodzrptpiguysy",
+        payoutRecipient: address as Address,
+        initialPurchaseWei: BigInt(0),
+      };
+      console.log("Coin parameters prepared:", {
+        ...coinParams,
+        initialPurchaseWei: "0",
+      });
+
+      console.log("Creating wallet client...");
+      const walletClient = createWalletClient({
+        account: address as Address,
+        chain: base,
+        transport: custom(window.ethereum),
+      });
+
+      console.log("Initiating coin creation transaction...");
+      const result = await createCoin(coinParams, walletClient, publicClient);
+
+      console.log("Coin creation successful!");
+      console.log("Transaction details:", {
+        hash: result.hash,
+        address: result.address,
+        deployment: result.deployment,
+      });
+
+      toast({
+        title: "Success!",
+        description: `Coin created! Transaction hash: ${result.hash}`,
+      });
+
+      setShowCoinDialog(false);
+    } catch (error: any) {
+      console.error("Coin creation failed with error:", {
+        message: error.message,
+        code: error.code,
+        details: error,
+      });
+
+      // Enhanced error messaging based on common error types
+      let errorMessage = error.message || "Failed to create coin";
+
+      if (error.code === 4001) {
+        errorMessage = "Transaction was rejected by user";
+      } else if (error.message?.includes("insufficient funds")) {
+        errorMessage =
+          "Insufficient funds for transaction. Please check your ETH balance.";
+      } else if (error.message?.includes("network")) {
+        errorMessage =
+          "Network error. Please check your connection and try again.";
+      }
+
+      toast({
+        title: "Error",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      console.log("Coin creation process completed");
+      setIsCoining(false);
+    }
+  };
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-6xl">
-      <h1 className="text-3xl font-bold mb-6 gradient-text font-display">Create a Pyx</h1>
+      <h1 className="text-3xl font-bold mb-6 gradient-text font-display">
+        Create a Pyx
+      </h1>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="space-y-6">
@@ -129,17 +229,20 @@ export default function CreatePage() {
 
               {/* Image upload for img2img */}
               <div className="flex flex-col gap-2 mt-2">
-                <Label htmlFor="image-upload">(Optional) Upload an Image for Image-to-Image</Label>
+                <Label htmlFor="image-upload">
+                  (Optional) Upload an Image for Image-to-Image
+                </Label>
                 <Input
                   id="image-upload"
                   type="file"
                   accept="image/*"
-                  onChange={e => {
+                  onChange={(e) => {
                     const file = e.target.files && e.target.files[0];
                     setSelectedImage(file || null);
                     if (file) {
                       const reader = new FileReader();
-                      reader.onload = (ev) => setImagePreview(ev.target?.result as string || "");
+                      reader.onload = (ev) =>
+                        setImagePreview((ev.target?.result as string) || "");
                       reader.readAsDataURL(file);
                     } else {
                       setImagePreview("");
@@ -148,7 +251,13 @@ export default function CreatePage() {
                 />
                 {imagePreview && (
                   <div className="mt-2">
-                    <Image src={imagePreview} alt="Preview" width={200} height={200} className="rounded border" />
+                    <Image
+                      src={imagePreview}
+                      alt="Preview"
+                      width={200}
+                      height={200}
+                      className="rounded border"
+                    />
                   </div>
                 )}
               </div>
@@ -167,7 +276,11 @@ export default function CreatePage() {
                 {styleOptions.map((style, index) => (
                   <Card
                     key={index}
-                    className={`cursor-pointer hover:border-violet-300 hover:shadow-md transition-all ${prompt === style ? "border-violet-500 ring-1 ring-violet-500" : ""}`}
+                    className={`cursor-pointer hover:border-violet-300 hover:shadow-md transition-all ${
+                      prompt === style
+                        ? "border-violet-500 ring-1 ring-violet-500"
+                        : ""
+                    }`}
                     onClick={() => setPrompt(style)}
                   >
                     <CardContent className="p-3 text-center">
@@ -188,7 +301,11 @@ export default function CreatePage() {
               <Textarea
                 placeholder="Add details to your selected style..."
                 className="min-h-[80px] resize-none"
-                value={prompt !== styleOptions.find((s) => s === prompt) ? prompt : ""}
+                value={
+                  prompt !== styleOptions.find((s) => s === prompt)
+                    ? prompt
+                    : ""
+                }
                 onChange={(e) => setPrompt(e.target.value)}
               />
             </TabsContent>
@@ -252,9 +369,12 @@ export default function CreatePage() {
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-center p-6 text-slate-500">
                 <Sparkles className="h-12 w-12 mb-4 opacity-20" />
-                <h3 className="text-lg font-medium mb-2 font-display">Your Pyx will appear here</h3>
+                <h3 className="text-lg font-medium mb-2 font-display">
+                  Your Pyx will appear here
+                </h3>
                 <p className="text-sm max-w-md">
-                  Enter a detailed prompt or select a style template to generate your unique Pyx
+                  Enter a detailed prompt or select a style template to generate
+                  your unique Pyx
                 </p>
               </div>
             )}
@@ -268,14 +388,20 @@ export default function CreatePage() {
           <DialogHeader>
             <DialogTitle className="font-display">Coin Your Pyx</DialogTitle>
             <DialogDescription>
-              Turn your creation into a tradable token by providing the following details.
+              Turn your creation into a tradable token by providing the
+              following details.
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-6 py-4">
             <div className="flex justify-center">
               <div className="relative w-40 h-40 rounded-lg overflow-hidden border border-slate-200">
-                <Image src={generatedImage || "/placeholder.svg"} alt="Generated Pyx" fill className="object-cover" />
+                <Image
+                  src={generatedImage || "/placeholder.svg"}
+                  alt="Generated Pyx"
+                  fill
+                  className="object-cover"
+                />
               </div>
             </div>
 
@@ -299,7 +425,9 @@ export default function CreatePage() {
                   value={tokenSymbol}
                   onChange={(e) => setTokenSymbol(e.target.value.toUpperCase())}
                 />
-                <p className="text-xs text-slate-500">Maximum 5 characters, uppercase letters only.</p>
+                <p className="text-xs text-slate-500">
+                  Maximum 5 characters, uppercase letters only.
+                </p>
               </div>
             </div>
           </div>
@@ -329,5 +457,5 @@ export default function CreatePage() {
         </DialogContent>
       </Dialog>
     </div>
-  )
+  );
 }
