@@ -28,6 +28,8 @@ export default function CreatePage() {
   const [tokenName, setTokenName] = useState("")
   const [tokenSymbol, setTokenSymbol] = useState("")
   const [isCoining, setIsCoining] = useState(false)
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string>("");
 
   const styleOptions = [
     "Cyberpunk",
@@ -43,28 +45,47 @@ export default function CreatePage() {
   ]
 
   const handleGenerate = async () => {
-    if (!prompt) return
+    if (!prompt) return;
 
-    setIsGenerating(true)
+    setIsGenerating(true);
     try {
-      const response = await fetch('/api/generate-mock', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          prompt,
-          aspect_ratio: "1:1",
-          num_images: 1
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to generate image');
+      let response;
+      if (selectedImage && imagePreview) {
+        // Send Data URI as image_url for image-to-image
+        response = await fetch('/api/generate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            prompt,
+            image_url: imagePreview, // Data URI
+            aspect_ratio: "1:1",
+            num_images: 1
+          }),
+        });
+      } else {
+        // Text-to-image as before
+        response = await fetch('/api/generate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            prompt,
+            aspect_ratio: "1:1",
+            num_images: 1
+          }),
+        });
       }
 
       const data = await response.json();
-      setGeneratedImage(data.images[0].url);
+      if (data.images && Array.isArray(data.images) && data.images[0]?.url) {
+        setGeneratedImage(data.images[0].url);
+      } else {
+        console.error('No images returned from API:', data);
+        // Optionally show a toast or error UI here
+      }
     } catch (error) {
       console.error('Error generating image:', error);
       // You might want to show an error message to the user here
@@ -105,6 +126,32 @@ export default function CreatePage() {
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
               />
+
+              {/* Image upload for img2img */}
+              <div className="flex flex-col gap-2 mt-2">
+                <Label htmlFor="image-upload">(Optional) Upload an Image for Image-to-Image</Label>
+                <Input
+                  id="image-upload"
+                  type="file"
+                  accept="image/*"
+                  onChange={e => {
+                    const file = e.target.files && e.target.files[0];
+                    setSelectedImage(file || null);
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onload = (ev) => setImagePreview(ev.target?.result as string || "");
+                      reader.readAsDataURL(file);
+                    } else {
+                      setImagePreview("");
+                    }
+                  }}
+                />
+                {imagePreview && (
+                  <div className="mt-2">
+                    <Image src={imagePreview} alt="Preview" width={200} height={200} className="rounded border" />
+                  </div>
+                )}
+              </div>
 
               <div className="space-y-2">
                 <div className="flex justify-between">
