@@ -15,7 +15,14 @@ export async function POST(request: NextRequest) {
     if (contentType.includes('multipart/form-data')) {
       // Parse multipart form
       const formData = await request.formData();
-      const prompt = formData.get('prompt') as string;
+      const promptValue = formData.get('prompt');
+      if (!promptValue || typeof promptValue !== 'string' || promptValue.trim() === '') {
+        return NextResponse.json(
+          { error: "Prompt is required for image generation." },
+          { status: 400 }
+        );
+      }
+      const prompt = promptValue.trim();
       const image = formData.get('image') as File | null;
       const aspect_ratio = formData.get('aspect_ratio') as string || '1:1';
       const num_images = parseInt(formData.get('num_images') as string || '1', 10);
@@ -50,26 +57,29 @@ export async function POST(request: NextRequest) {
       // If an image file was uploaded, you should upload it to a public host (e.g., Fal storage, S3, etc.) and use that URL here.
       // For now, we expect the frontend to provide a public image_url, or you can add Fal storage upload logic if you want file uploads.
       // If image_url is a Data URI, use it; else fallback to formData.get('image_url')
-      let image_url = formData.get('image_url') || undefined;
-      if (image_url && typeof image_url === 'object' && 'value' in image_url) {
-        image_url = image_url.value;
+      // First get the FormData value (type: FormDataEntryValue | null)
+      const formDataImage = formData.get('image_url');
+
+      // Then extract the URL for the payload (type: string | undefined)
+      let image_url_for_payload: string | undefined;
+
+      if (typeof formDataImage === 'string') {
+        image_url_for_payload = formDataImage;
+      } else {
+        image_url_for_payload = undefined;
       }
-      // If frontend sends Data URI as image_url, prefer that
-      if (image_url && typeof image_url === 'string' && image_url.startsWith('data:')) {
-        // Use Data URI for Fal
-      } else if (image && typeof image === 'object') {
-        // If only file is present, fallback to undefined (should not happen with new frontend)
-        image_url = undefined;
-      }
+
+      // Ensure prompt is never empty in the payload
       const payload = {
-        prompt: prompt || '',
-        image_url,
+        prompt: prompt,  // We've already validated it's non-empty
+        image_url: image_url_for_payload,
         num_images: Math.min(Math.max(1, num_images), 4)
       };
+      
       const modelUsed = 'fal-ai/flux/dev/image-to-image';
       console.log(`[FAL] Using model: ${modelUsed}`);
       console.log('[FAL] Prompt:', payload.prompt);
-      console.log('[FAL] image_url:', typeof image_url === 'string' ? image_url.slice(0, 60) + '...' : image_url);
+      console.log('[FAL] image_url:', image_url_for_payload ? image_url_for_payload.slice(0, 60) + '...' : 'undefined');
       console.log('Payload sent to Fal via fetch:', payload);
       try {
         const response = await fetch('https://queue.fal.run/fal-ai/flux/dev/image-to-image', {
