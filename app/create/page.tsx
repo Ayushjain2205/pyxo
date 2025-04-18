@@ -42,16 +42,35 @@ export default function CreatePage() {
     "Minimalist",
   ]
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (!prompt) return
 
     setIsGenerating(true)
+    try {
+      const response = await fetch('/api/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt,
+          aspect_ratio: "1:1",
+          num_images: 1
+        }),
+      });
 
-    // Simulate image generation
-    setTimeout(() => {
-      setGeneratedImage(`/placeholder.svg?height=512&width=512&query=${encodeURIComponent(prompt)}`)
-      setIsGenerating(false)
-    }, 2000)
+      if (!response.ok) {
+        throw new Error('Failed to generate image');
+      }
+
+      const data = await response.json();
+      setGeneratedImage(data.images[0].url);
+    } catch (error) {
+      console.error('Error generating image:', error);
+      // You might want to show an error message to the user here
+    } finally {
+      setIsGenerating(false);
+    }
   }
 
   const handleCoinSubmit = () => {
@@ -133,6 +152,7 @@ export default function CreatePage() {
             size="lg"
             onClick={handleGenerate}
             disabled={!prompt || isGenerating}
+            type="button"
           >
             {isGenerating ? (
               <>
